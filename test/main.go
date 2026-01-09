@@ -1,17 +1,16 @@
 package main
 
-import (
-	"os"
-)
+import "fmt"
 
 func main() {
-	err := os.MkdirAll("tmp", 0755)
-	if err != nil {
-		println(err)
+	v := 1
+	switch v {
+	case 1:
+		fmt.Println(1)
+		fallthrough
+	case 2:
+		fmt.Println(2)
+	default:
+		fmt.Println("none")
 	}
-	tf, _ := os.CreateTemp("tmp", "fuck.txt")
-	os.Rename(tf.Name(), "a.txt")
-	// if err != nil {
-	// 	fmt.Print("rename")
-	// }
 }
