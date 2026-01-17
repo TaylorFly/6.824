@@ -1,0 +1,7 @@
+=== RUN   TestBasicAgree2B
+Test (2B): basic agreement ...
+    config.go:602: one(100) failed to reach agreement
+--- FAIL: TestBasicAgree2B (2.22s)
+FAIL
+exit status 1
+FAIL	6.824/raft	2.225s
