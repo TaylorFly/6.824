@@ -20,6 +20,7 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"time"
 
 	//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 )
 
@@ -144,6 +146,13 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.log)
+	e.Encode(rf.votedFor)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 // restore previously persisted state.
@@ -152,18 +161,22 @@ func (rf *Raft) readPersist(data []byte) {
 		return
 	}
 	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var currentTerm int
+	var log []LogEntry
+	var votedFor int
+
+	if d.Decode(&currentTerm) != nil ||
+		d.Decode(&log) != nil ||
+		d.Decode(&votedFor) != nil {
+		// Decode error
+	} else {
+		rf.currentTerm = currentTerm
+		rf.log = log
+		rf.votedFor = votedFor
+	}
 }
 
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
@@ -219,6 +232,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if rf.votedFor != -1 {
 		reply.VoteGranted = rf.votedFor == args.CandidateID
 		reply.Term = rf.currentTerm //
+		rf.persist()
 		return
 	}
 
@@ -255,6 +269,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else {
 		reply.Term = rf.currentTerm
 	}
+	rf.persist()
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -318,6 +333,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Command: command,
 	}
 	rf.log = append(rf.log, entry)
+	rf.persist()
 	index = len(rf.log)
 	term = rf.currentTerm
 	return index, term, isLeader
@@ -365,6 +381,7 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.votedFor = -1
 	rf.timer.Reset(rf.overtime)
 	rf.currentTerm = args.Term
+	rf.persist()
 
 	// 失败情况二：日志错误
 	// 2.1：prev太长, 下次在log的末尾插入
@@ -414,6 +431,7 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 		rf.log = rf.log[:args.PrevLogIndex+1]
 		rf.log = append(rf.log, args.Entries...)
 		reply.Success = true
+		rf.persist()
 	}
 }
 
@@ -508,6 +526,7 @@ func (rf *Raft) ticker() {
 			} else {
 				rf.currentTerm += 1
 				rf.votedFor = rf.me
+				rf.persist()
 				rf.mu.Unlock()
 				voteNum := 1
 				finish := 1
@@ -546,6 +565,7 @@ func (rf *Raft) ticker() {
 								rf.currentTerm = reply.Term
 								rf.votedFor = -1
 								rf.role = Follower
+								rf.persist()
 							}
 							rf.mu.Unlock()
 						}
