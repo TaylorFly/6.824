@@ -1,0 +1,165 @@
+DEBUG VALUE: 1
+=== RUN   TestReElection2A
+Test (2A): election after network failure ...
+001994 VOTE S1 <- S0 RequestVote T1, myTerm=0
+001995 VOTE S0 -> S1 RequestVote T1, result={0 true}
+001995 LEAD S0 Achieved Majority for T1, becoming Leader
+001994 VOTE S2 <- S0 RequestVote T1, myTerm=0
+001996 VOTE S0 -> S2 RequestVote T1, result={0 true}
+003001 LOG1 S0 -> S2 Sending AppendEntries T1
+003001 LOG1 S0 -> S1 Sending AppendEntries T1
+003003 LOG1 S2 <- S0 AppendEntries T1, myTerm=1
+003003 LOG1 S1 <- S0 AppendEntries T1, myTerm=1
+003003 TIMR S1 <- S0 Heartbeat T1, myTerm=1
+003003 TIMR S2 <- S0 Heartbeat T1, myTerm=1
+003004 TIMR S0 -> S1 Heartbeat T1 reply={1 true -1 -1}
+003004 LOG2 S0 -> S1 AppendEntries OK
+003005 TIMR S0 -> S2 Heartbeat T1 reply={1 true -1 -1}
+003005 LOG2 S0 -> S2 AppendEntries OK
+004012 LOG1 S0 -> S2 Sending AppendEntries T1
+004012 LOG1 S0 -> S1 Sending AppendEntries T1
+004013 LOG1 S2 <- S0 AppendEntries T1, myTerm=1
+004014 TIMR S2 <- S0 Heartbeat T1, myTerm=1
+004014 LOG1 S1 <- S0 AppendEntries T1, myTerm=1
+004014 TIMR S0 -> S2 Heartbeat T1 reply={1 true -1 -1}
+004014 LOG2 S0 -> S2 AppendEntries OK
+004014 TIMR S1 <- S0 Heartbeat T1, myTerm=1
+004014 TIMR S0 -> S1 Heartbeat T1 reply={1 true -1 -1}
+004014 LOG2 S0 -> S1 AppendEntries OK
+005021 LOG1 S0 -> S2 Sending AppendEntries T1
+005022 LOG1 S2 <- S0 AppendEntries T1, myTerm=1
+005022 LOG1 S0 -> S1 Sending AppendEntries T1
+005023 LOG1 S1 <- S0 AppendEntries T1, myTerm=1
+005023 TIMR S1 <- S0 Heartbeat T1, myTerm=1
+005023 TIMR S0 -> S1 Heartbeat T1 reply={1 true -1 -1}
+005023 LOG2 S0 -> S1 AppendEntries OK
+005022 TIMR S2 <- S0 Heartbeat T1, myTerm=1
+005024 TIMR S0 -> S2 Heartbeat T1 reply={1 true -1 -1}
+005024 LOG2 S0 -> S2 AppendEntries OK
+006021 LOG1 S0 -> S2 Sending AppendEntries T1
+006021 LOG1 S0 -> S1 Sending AppendEntries T1
+007027 LOG1 S0 -> S2 Sending AppendEntries T1
+007027 LOG1 S0 -> S1 Sending AppendEntries T1
+008029 LOG1 S0 -> S1 Sending AppendEntries T1
+008029 LOG1 S0 -> S2 Sending AppendEntries T1
+008235 VOTE S2 <- S1 RequestVote T2, myTerm=1
+008236 VOTE S1 -> S2 RequestVote T2, result={1 true}
+008236 LEAD S1 Achieved Majority for T2, becoming Leader
+009032 LOG1 S0 -> S2 Sending AppendEntries T1
+009032 LOG1 S0 -> S1 Sending AppendEntries T1
+009240 LOG1 S1 -> S2 Sending AppendEntries T2
+009241 LOG1 S1 -> S0 Sending AppendEntries T2
+009242 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+009242 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+009242 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+009242 LOG2 S1 -> S2 AppendEntries OK
+010038 LOG1 S0 -> S2 Sending AppendEntries T1
+010039 LOG1 S0 -> S1 Sending AppendEntries T1
+010245 LOG1 S1 -> S2 Sending AppendEntries T2
+010245 LOG1 S1 -> S0 Sending AppendEntries T2
+010248 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+010249 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+010249 LOG1 S0 <- S1 AppendEntries T2, myTerm=1
+010249 TIMR S0 <- S1 Heartbeat T2, myTerm=1
+010249 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+010249 LOG2 S1 -> S2 AppendEntries OK
+010249 TIMR S1 -> S0 Heartbeat T2 reply={1 true -1 -1}
+010250 LOG2 S1 -> S0 AppendEntries OK
+011248 LOG1 S1 -> S0 Sending AppendEntries T2
+011248 LOG1 S1 -> S2 Sending AppendEntries T2
+011254 LOG1 S0 <- S1 AppendEntries T2, myTerm=2
+011255 TIMR S0 <- S1 Heartbeat T2, myTerm=2
+011254 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+011256 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+011256 TIMR S1 -> S0 Heartbeat T2 reply={2 true -1 -1}
+011256 LOG2 S1 -> S0 AppendEntries OK
+011256 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+011256 LOG2 S1 -> S2 AppendEntries OK
+012257 LOG1 S1 -> S0 Sending AppendEntries T2
+012257 LOG1 S1 -> S2 Sending AppendEntries T2
+012263 LOG1 S0 <- S1 AppendEntries T2, myTerm=2
+012263 TIMR S0 <- S1 Heartbeat T2, myTerm=2
+012263 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+012263 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+012263 TIMR S1 -> S0 Heartbeat T2 reply={2 true -1 -1}
+012264 LOG2 S1 -> S0 AppendEntries OK
+012264 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+012264 LOG2 S1 -> S2 AppendEntries OK
+013269 LOG1 S1 -> S2 Sending AppendEntries T2
+013269 LOG1 S1 -> S0 Sending AppendEntries T2
+013272 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+013273 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+013273 LOG1 S0 <- S1 AppendEntries T2, myTerm=2
+013273 TIMR S0 <- S1 Heartbeat T2, myTerm=2
+013273 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+013273 LOG2 S1 -> S2 AppendEntries OK
+013273 TIMR S1 -> S0 Heartbeat T2 reply={2 true -1 -1}
+013273 LOG2 S1 -> S0 AppendEntries OK
+014271 LOG1 S1 -> S2 Sending AppendEntries T2
+014272 LOG1 S1 -> S0 Sending AppendEntries T2
+014273 LOG1 S0 <- S1 AppendEntries T2, myTerm=2
+014273 TIMR S0 <- S1 Heartbeat T2, myTerm=2
+014273 TIMR S1 -> S0 Heartbeat T2 reply={2 true -1 -1}
+014273 LOG2 S1 -> S0 AppendEntries OK
+014273 LOG1 S2 <- S1 AppendEntries T2, myTerm=2
+014273 TIMR S2 <- S1 Heartbeat T2, myTerm=2
+014274 TIMR S1 -> S2 Heartbeat T2 reply={2 true -1 -1}
+014274 LOG2 S1 -> S2 AppendEntries OK
+015278 LOG1 S1 -> S2 Sending AppendEntries T2
+015278 LOG1 S1 -> S0 Sending AppendEntries T2
+016143 VOTE S1 -> S0 RequestVote T2, result={0 false}
+016288 LOG1 S1 -> S2 Sending AppendEntries T2
+016288 LOG1 S1 -> S0 Sending AppendEntries T2
+017295 LOG1 S1 -> S2 Sending AppendEntries T2
+017296 LOG1 S1 -> S0 Sending AppendEntries T2
+018298 LOG1 S1 -> S2 Sending AppendEntries T2
+018299 LOG1 S1 -> S0 Sending AppendEntries T2
+019305 LOG1 S1 -> S2 Sending AppendEntries T2
+019306 LOG1 S1 -> S0 Sending AppendEntries T2
+020309 LOG1 S1 -> S2 Sending AppendEntries T2
+020310 LOG1 S1 -> S0 Sending AppendEntries T2
+021317 LOG1 S1 -> S2 Sending AppendEntries T2
+021318 LOG1 S1 -> S0 Sending AppendEntries T2
+022326 LOG1 S1 -> S2 Sending AppendEntries T2
+022326 LOG1 S1 -> S0 Sending AppendEntries T2
+023336 LOG1 S1 -> S2 Sending AppendEntries T2
+023336 LOG1 S1 -> S0 Sending AppendEntries T2
+024338 LOG1 S1 -> S2 Sending AppendEntries T2
+024339 LOG1 S1 -> S0 Sending AppendEntries T2
+025339 LOG1 S1 -> S2 Sending AppendEntries T2
+025339 LOG1 S1 -> S0 Sending AppendEntries T2
+026347 LOG1 S1 -> S2 Sending AppendEntries T2
+026348 LOG1 S1 -> S0 Sending AppendEntries T2
+027356 LOG1 S1 -> S2 Sending AppendEntries T2
+027357 LOG1 S1 -> S0 Sending AppendEntries T2
+028358 LOG1 S1 -> S2 Sending AppendEntries T2
+028359 LOG1 S1 -> S0 Sending AppendEntries T2
+029359 LOG1 S1 -> S2 Sending AppendEntries T2
+029359 LOG1 S1 -> S0 Sending AppendEntries T2
+030364 LOG1 S1 -> S2 Sending AppendEntries T2
+030365 LOG1 S1 -> S0 Sending AppendEntries T2
+031366 LOG1 S1 -> S2 Sending AppendEntries T2
+031366 LOG1 S1 -> S0 Sending AppendEntries T2
+032375 LOG1 S1 -> S2 Sending AppendEntries T2
+032375 LOG1 S1 -> S0 Sending AppendEntries T2
+033379 LOG1 S1 -> S2 Sending AppendEntries T2
+033379 LOG1 S1 -> S0 Sending AppendEntries T2
+034382 LOG1 S1 -> S2 Sending AppendEntries T2
+034382 LOG1 S1 -> S0 Sending AppendEntries T2
+035392 LOG1 S1 -> S2 Sending AppendEntries T2
+035392 LOG1 S1 -> S0 Sending AppendEntries T2
+036404 LOG1 S1 -> S2 Sending AppendEntries T2
+036404 LOG1 S1 -> S0 Sending AppendEntries T2
+037413 LOG1 S1 -> S2 Sending AppendEntries T2
+037414 LOG1 S1 -> S0 Sending AppendEntries T2
+038418 LOG1 S1 -> S2 Sending AppendEntries T2
+038419 LOG1 S1 -> S0 Sending AppendEntries T2
+039427 LOG1 S1 -> S2 Sending AppendEntries T2
+039428 LOG1 S1 -> S0 Sending AppendEntries T2
+040432 LOG1 S1 -> S2 Sending AppendEntries T2
+040432 LOG1 S1 -> S0 Sending AppendEntries T2
+040923 VOTE S0 -> S2 RequestVote T3, result={0 false}
+041443 LOG1 S1 -> S2 Sending AppendEntries T2
+041443 LOG1 S1 -> S0 Sending AppendEntries T2
+signal: interrupt
+FAIL	6.824/raft	4.185s

@@ -19,9 +19,7 @@ package raft
 
 import (
 	//	"bytes"
-
 	"bytes"
-	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -37,8 +35,6 @@ type LogEntry struct {
 	Command interface{}
 }
 
-const HeartBeatTerm = -1
-
 type Role int
 
 const (
@@ -47,7 +43,7 @@ const (
 	Follower
 )
 
-const HeartBeatTimeout = 120 * time.Millisecond
+const HeartBeatTimeout = 100 * time.Millisecond
 
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -99,7 +95,6 @@ type Raft struct {
 
 	applyCh chan ApplyMsg
 
-	// 快照中包含的最后一个log的index和term
 	lastIncludedIndex int
 	lastIncludedTerm  int
 }
@@ -150,6 +145,12 @@ func (rf *Raft) fakeIndex(index int) int {
 	return index + rf.lastIncludedIndex + 1
 }
 
+func (rf *Raft) resetElectionTimer() {
+	rf.overtime = time.Duration(250+rand.Intn(250)) * time.Millisecond
+	rf.timer.Stop()
+	rf.timer.Reset(rf.overtime)
+}
+
 func (rf *Raft) getLastLogIndex() int {
 	return rf.lastIncludedIndex + len(rf.log)
 }
@@ -183,6 +184,8 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Unlock()
 	return term, isleader
 }
+
+// since() is no longer needed as Debug() handles timing
 
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
@@ -361,17 +364,22 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	Debug(dVote, "S%d <- S%d RequestVote T%d, myTerm=%d", rf.me, args.CandidateID, args.Term, rf.currentTerm)
+
+	reply.Term = rf.currentTerm
+
 	// 自己的term比较小
 	if rf.currentTerm < args.Term {
+		// 如果对方的term更大，那么自己就变成follower，但是不着急把票投给对方
+		// 因为可能因为网络分区导致对方的Term更大，但是无法保证对方的日志比自己新
 		rf.currentTerm = args.Term
-		rf.votedFor = -1 // 这一步也是清除之前的vote
+		rf.votedFor = -1
 		rf.role = Follower
+		rf.persist()
 	}
 
 	if rf.votedFor != -1 {
 		reply.VoteGranted = rf.votedFor == args.CandidateID
-		reply.Term = rf.currentTerm //
-		rf.persist()
 		return
 	}
 
@@ -404,14 +412,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	reply.VoteGranted = vote
 	if vote {
-		reply.Term = rf.currentTerm
+		rf.currentTerm = args.Term
 		rf.role = Follower
 		rf.votedFor = args.CandidateID
-		rf.timer.Reset(rf.overtime)
-	} else {
-		reply.Term = rf.currentTerm
+		rf.resetElectionTimer()
+		rf.persist()
 	}
-	rf.persist()
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -512,17 +518,35 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	reply.ConflictTerm = -1
 	reply.Term = rf.currentTerm
 	//失败情况1：当前的Term更大
+	Debug(dLog, "S%d <- S%d AppendEntries T%d, myTerm=%d", rf.me, args.LeaderID, args.Term, rf.currentTerm)
 	if rf.currentTerm > args.Term {
 		reply.Success = false
 		return
 	}
 
+	term := rf.currentTerm
+
 	// 当前的term更小（等于）Leader的，那么确定是Follower,统一处理一下
 	rf.role = Follower
 	rf.votedFor = -1
-	rf.timer.Reset(rf.overtime)
+	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.persist()
+
+	// 空的消息，说明是确认自己Leader身份或者告诉Follower自己的CommitIndex更新完成，让Follower更新一下
+	if len(args.Entries) == 0 {
+		Debug(dTimer, "S%d <- S%d Heartbeat T%d, myTerm=%d", rf.me, args.LeaderID, args.Term, term)
+		// Heartbeat: update commitIndex
+		if args.LeaderCommit > rf.commitIndex {
+			if args.LeaderCommit < rf.fakeIndex(len(rf.log)-1) {
+				rf.commitIndex = args.LeaderCommit
+			} else {
+				rf.commitIndex = rf.fakeIndex(len(rf.log) - 1)
+			}
+		}
+		reply.Success = true
+		return
+	}
 
 	// 失败情况二：日志错误
 	// 2.1：prev太长, 下次在log的末尾插入
@@ -567,20 +591,6 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 		return
 	}
 
-	// 空的消息，说明是确认自己Leader身份或者告诉Follower自己的CommitIndex更新完成，让Follower更新一下
-	if len(args.Entries) == 0 {
-		// Heartbeat: update commitIndex
-		if args.LeaderCommit > rf.commitIndex {
-			if args.LeaderCommit < rf.fakeIndex(len(rf.log)-1) {
-				rf.commitIndex = args.LeaderCommit
-			} else {
-				rf.commitIndex = rf.fakeIndex(len(rf.log) - 1)
-			}
-		}
-		reply.Success = true
-		return
-	}
-
 	// prev也是正确的，那么就更新当前的log
 	if args.PrevLogIndex == -1 || rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
 		// 如果prev是正确的，或者当前的log为空，直接append
@@ -601,196 +611,240 @@ func (rf *Raft) ticker() {
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 
-		select {
-		case <-rf.timer.C:
-			if rf.killed() {
-				return
-			}
+		for !rf.killed() {
+			select {
+			case <-rf.timer.C:
 
-			rf.mu.Lock()
-			if rf.role == Leader {
-				//心跳
-				rf.mu.Unlock()
-				for i := 0; i < len(rf.peers); i++ {
-					if i == rf.me {
-						continue
-					}
-					go func(server int) {
-						rf.mu.Lock()
+				rf.mu.Lock()
+				if rf.role == Leader {
+					//心跳
+					rf.mu.Unlock()
+					for i := 0; i < len(rf.peers); i++ {
+						if i == rf.me {
+							continue
+						}
+						if rf.role != Leader {
+							rf.mu.Unlock()
+							break
+						}
+						go func(server int) {
+							rf.mu.Lock()
 
-						// 如果Follower的日志很落后的时候，Leader中在此之前的log已经被压缩了，无法发送，Follower需要去压缩在这之前的log
-						if rf.nextIndex[server] <= rf.lastIncludedIndex {
-							args := InstallSnapshotArgs{
-								Term:              rf.currentTerm,
-								LeaderId:          rf.me,
-								LastIncludedIndex: rf.lastIncludedIndex,
-								LastIncludedTerm:  rf.lastIncludedTerm,
-								Data:              rf.persister.ReadSnapshot(),
+							// 如果Follower的日志很落后的时候，Leader中在此之前的log已经被压缩了，无法发送，Follower需要去压缩在这之前的log
+							if rf.nextIndex[server] <= rf.lastIncludedIndex {
+								Debug(dSnap, "S%d -> S%d InstallSnapshot lastIdx=%d lastTerm=%d", rf.me, server, rf.lastIncludedIndex, rf.lastIncludedTerm)
+								args := InstallSnapshotArgs{
+									Term:              rf.currentTerm,
+									LeaderId:          rf.me,
+									LastIncludedIndex: rf.lastIncludedIndex,
+									LastIncludedTerm:  rf.lastIncludedTerm,
+									Data:              rf.persister.ReadSnapshot(),
+								}
+								rf.mu.Unlock()
+								reply := InstallSnapshotReply{}
+								ok := rf.sendInstallSnapshot(server, &args, &reply)
+
+								if ok {
+									rf.mu.Lock()
+									if reply.Term > rf.currentTerm {
+										rf.role = Follower
+										rf.votedFor = -1
+										rf.currentTerm = reply.Term
+										rf.resetElectionTimer()
+									} else {
+										rf.nextIndex[server] = rf.lastIncludedIndex + 1
+										rf.matchIndex[server] = rf.lastIncludedIndex
+									}
+									rf.mu.Unlock()
+								}
+								return
+							}
+
+							// 准备提交给该server的log
+							entries := make([]LogEntry, 0)
+
+							if rf.nextIndex[server] < rf.logLength() {
+								entries = append(entries, rf.log[rf.logIndex(rf.nextIndex[server]):]...)
+							}
+							// 上一个log的信息
+							prevLogIndex := rf.nextIndex[server] - 1
+							prevLogTerm := -1
+
+							if rf.logIndex(prevLogIndex) >= 0 && prevLogIndex < rf.logLength() {
+								prevLogTerm = rf.log[rf.logIndex(prevLogIndex)].Term
+							}
+							appendEntryArg := AppendEntryArgs{
+								Term:         rf.currentTerm,
+								LeaderID:     rf.me,
+								PrevLogIndex: prevLogIndex,
+								PrevLogTerm:  prevLogTerm,
+								Entries:      entries,
+								LeaderCommit: rf.commitIndex,
 							}
 							rf.mu.Unlock()
-							reply := InstallSnapshotReply{}
-							ok := rf.sendInstallSnapshot(server, &args, &reply)
+							reply := AppendEntryReply{}
+
+							Debug(dLog, "S%d -> S%d Sending AppendEntries T%d", rf.me, server, rf.currentTerm)
+
+							ok := rf.sendAppenEntries(server, &appendEntryArg, &reply)
 
 							if ok {
 								rf.mu.Lock()
-								if reply.Term > rf.currentTerm {
-									rf.role = Follower
-									rf.votedFor = -1
-									rf.currentTerm = reply.Term
-									rf.timer.Reset(rf.overtime)
-								} else {
-									rf.nextIndex[server] = rf.lastIncludedIndex + 1
-									rf.matchIndex[server] = rf.lastIncludedIndex
+								if len(entries) == 0 {
+									Debug(dTimer, "S%d -> S%d Heartbeat T%d reply=%v", rf.me, server, rf.currentTerm, reply)
 								}
-								rf.mu.Unlock()
-							}
-							return
-						}
+								Debug(dLog2, "S%d -> S%d AppendEntries OK", rf.me, server)
+								if reply.Success {
+									rf.nextIndex[server] = prevLogIndex + 1 + len(entries)
+									rf.matchIndex[server] = rf.nextIndex[server] - 1
 
-						// 准备提交给该server的log
-						entries := make([]LogEntry, 0)
-
-						if rf.nextIndex[server] < rf.logLength() {
-							entries = append(entries, rf.log[rf.logIndex(rf.nextIndex[server]):]...)
-						}
-						// 上一个log的信息
-						prevLogIndex := rf.nextIndex[server] - 1
-						prevLogTerm := -1
-
-						if rf.logIndex(prevLogIndex) >= 0 && prevLogIndex < rf.logLength() {
-							prevLogTerm = rf.log[rf.logIndex(prevLogIndex)].Term
-						}
-						appendEntryArg := AppendEntryArgs{
-							Term:         rf.currentTerm,
-							LeaderID:     rf.me,
-							PrevLogIndex: prevLogIndex,
-							PrevLogTerm:  prevLogTerm,
-							Entries:      entries,
-							LeaderCommit: rf.commitIndex,
-						}
-						rf.mu.Unlock()
-						reply := AppendEntryReply{}
-						ok := rf.sendAppenEntries(server, &appendEntryArg, &reply)
-
-						if ok {
-							rf.mu.Lock()
-							if reply.Success {
-								rf.nextIndex[server] = prevLogIndex + 1 + len(entries)
-								rf.matchIndex[server] = rf.nextIndex[server] - 1
-
-								// 超过半数的Follower确定了同步的位置才更新Leader的commitIndex
-								for n := rf.fakeIndex(len(rf.log) - 1); n > rf.commitIndex; n-- {
-									if rf.logIndex(n) < 0 {
-										fmt.Println("Commit Index: ", rf.commitIndex, " includeIndex: ", rf.lastIncludedIndex)
-									}
-									if rf.log[rf.logIndex(n)].Term != rf.currentTerm {
-										continue
-									}
-									acceptNum := 1
-									for i := 0; i < len(rf.peers); i++ {
-										if i != rf.me && rf.matchIndex[i] >= n {
-											acceptNum++
+									// 超过半数的Follower确定了同步的位置才更新Leader的commitIndex
+									for n := rf.fakeIndex(len(rf.log) - 1); n > rf.commitIndex; n-- {
+										if rf.logIndex(n) < 0 {
+											Debug(dCommit, "S%d commitIdx=%d includeIdx=%d", rf.me, rf.commitIndex, rf.lastIncludedIndex)
+										}
+										if rf.log[rf.logIndex(n)].Term != rf.currentTerm {
+											continue
+										}
+										acceptNum := 1
+										for i := 0; i < len(rf.peers); i++ {
+											if i != rf.me && rf.matchIndex[i] >= n {
+												acceptNum++
+											}
+										}
+										if acceptNum > len(rf.peers)/2 {
+											rf.commitIndex = n
+											break
 										}
 									}
-									if acceptNum > len(rf.peers)/2 {
-										rf.commitIndex = n
-										break
+
+								} else {
+									Debug(dLog2, "S%d -> S%d AppendEntries fail, replyTerm=%d myTerm=%d", rf.me, server, reply.Term, rf.currentTerm)
+									if reply.Term > rf.currentTerm {
+										Debug(dTerm, "S%d stepping down, T%d > T%d", rf.me, reply.Term, rf.currentTerm)
+										Debug(dLeader, "S%d Leader -> Follower", rf.me)
+										rf.role = Follower
+										rf.currentTerm = reply.Term
+										rf.votedFor = -1
+										rf.resetElectionTimer()
+									} else {
+										rf.nextIndex[server] = reply.ConflictIndex
 									}
 								}
-
+								rf.mu.Unlock()
 							} else {
-								if reply.Term > rf.currentTerm {
-									rf.role = Follower
-									rf.votedFor = -1
-									rf.timer.Reset(rf.overtime)
-								} else {
-									rf.nextIndex[server] = reply.ConflictIndex
-								}
+								return
 							}
-							rf.mu.Unlock()
-						}
-					}(i)
-				}
-				rf.timer.Reset(HeartBeatTimeout)
-			} else {
-				rf.currentTerm += 1
-				rf.votedFor = rf.me
-				rf.persist()
-				rf.mu.Unlock()
-				voteNum := 1
-				finish := 1
-				var voteMu sync.Mutex
-				cond := sync.NewCond(&voteMu)
-
-				for i := 0; i < len(rf.peers); i++ {
-					if i == rf.me {
-						continue
-					}
-
-					go func(server int) {
-						rf.mu.Lock()
-						args := RequestVoteArgs{
-							Term:         rf.currentTerm,
-							CandidateID:  rf.me,
-							LastLogIndex: rf.fakeIndex(len(rf.log) - 1),
-							LastLogTerm:  0,
-						}
-						if len(rf.log) > 0 {
-							args.LastLogTerm = rf.log[len(rf.log)-1].Term
-						} else if args.LastLogIndex >= 0 {
-							args.LastLogTerm = rf.lastIncludedTerm
-						}
-						rf.mu.Unlock()
-						reply := RequestVoteReply{}
-						ok := rf.sendRequestVote(server, &args, &reply)
-						voteMu.Lock()
-						finish++
-						voteMu.Unlock()
-						if ok {
-							rf.mu.Lock()
-							if reply.VoteGranted {
-								voteMu.Lock()
-								voteNum++
-								voteMu.Unlock()
-							} else if reply.Term > rf.currentTerm {
-								rf.currentTerm = reply.Term
-								rf.votedFor = -1
-								rf.role = Follower
-								rf.persist()
-							}
-							rf.mu.Unlock()
-						}
-						cond.Broadcast()
-					}(i)
-				}
-
-				go func() {
-					voteMu.Lock()
-					defer voteMu.Unlock()
-					for voteNum <= len(rf.peers)/2 && finish < len(rf.peers) {
-						cond.Wait()
+						}(i)
 					}
 					rf.mu.Lock()
-					if voteNum > len(rf.peers)/2 {
-						// 选举结束且超过半数
-						rf.role = Leader
-						// 变成Leader, 重置
-						rf.nextIndex = make([]int, len(rf.peers))
-						rf.matchIndex = make([]int, len(rf.peers))
-						for i := 0; i < len(rf.peers); i++ {
-							rf.matchIndex[i] = -1
-							// 这里应该分别是log的长度和0
-							rf.nextIndex[i] = rf.logLength()
-						}
-
+					if rf.role == Leader {
 						rf.timer.Reset(HeartBeatTimeout)
-					} else {
-						//如果选举失败，随机设置选举超时 !!
-						rf.overtime = time.Duration(150+rand.Intn(200)) * time.Millisecond
-						rf.timer.Reset(rf.overtime)
 					}
 					rf.mu.Unlock()
-				}()
+				} else {
+					rf.currentTerm += 1
+					rf.role = Candidater
+					rf.votedFor = rf.me
+					rf.persist()
+					rf.resetElectionTimer()
+					savedCurrentTerm := rf.currentTerm
+					rf.mu.Unlock()
+					voteNum := 1
+					finish := 1
+					var voteMu sync.Mutex
+					cond := sync.NewCond(&voteMu)
+
+					for i := 0; i < len(rf.peers); i++ {
+						if i == rf.me {
+							continue
+						}
+
+						go func(server int) {
+							rf.mu.Lock()
+							if rf.role != Candidater {
+								rf.mu.Unlock()
+								voteMu.Lock()
+								finish++
+								voteMu.Unlock()
+								cond.Broadcast()
+								return
+							}
+
+							args := RequestVoteArgs{
+								Term:         rf.currentTerm,
+								CandidateID:  rf.me,
+								LastLogIndex: rf.fakeIndex(len(rf.log) - 1),
+								LastLogTerm:  0,
+							}
+							if len(rf.log) > 0 {
+								args.LastLogTerm = rf.log[len(rf.log)-1].Term
+							} else if args.LastLogIndex >= 0 {
+								args.LastLogTerm = rf.lastIncludedTerm
+							}
+							rf.mu.Unlock()
+							reply := RequestVoteReply{}
+							ok := rf.sendRequestVote(server, &args, &reply)
+
+							rf.mu.Lock()
+							Debug(dVote, "S%d -> S%d RequestVote T%d, result=%v", rf.me, server, rf.currentTerm, reply)
+							rf.mu.Unlock()
+
+							voteMu.Lock()
+							finish++
+							// voteMu.Unlock() // Don't unlock yet, need to increment voteNum or just finish
+
+							if ok {
+								if reply.VoteGranted {
+									// voteMu.Lock() already held
+									voteNum++
+									// voteMu.Unlock()
+								} else {
+									rf.mu.Lock()
+									if reply.Term > rf.currentTerm {
+										rf.currentTerm = reply.Term
+										rf.votedFor = -1
+										rf.role = Follower
+										rf.persist()
+										// voteNum = 0 // Optional, but effectively stops election
+										// finish = len(rf.peers) // Speed up termination
+									}
+									rf.mu.Unlock()
+								}
+							}
+							voteMu.Unlock()
+							cond.Broadcast()
+						}(i)
+					}
+
+					go func() {
+						voteMu.Lock()
+						for voteNum <= len(rf.peers)/2 && finish < len(rf.peers) {
+							cond.Wait()
+						}
+						success := voteNum > len(rf.peers)/2
+						voteMu.Unlock()
+						rf.mu.Lock()
+						if success && rf.role == Candidater && rf.currentTerm == savedCurrentTerm {
+							// 选举结束且超过半数
+							Debug(dLeader, "S%d Achieved Majority for T%d, becoming Leader", rf.me, rf.currentTerm)
+							rf.role = Leader
+							rf.timer.Reset(HeartBeatTimeout)
+							// 变成Leader, 重置
+							rf.nextIndex = make([]int, len(rf.peers))
+							rf.matchIndex = make([]int, len(rf.peers))
+							for i := 0; i < len(rf.peers); i++ {
+								rf.matchIndex[i] = -1
+								// 这里应该分别是log的长度和0
+								rf.nextIndex[i] = rf.logLength()
+							}
+						} else {
+							//如果选举失败，随机设置选举超时 !!
+							rf.resetElectionTimer()
+						}
+						rf.mu.Unlock()
+					}()
+				}
 			}
 		}
 	}
@@ -846,7 +900,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.matchIndex = make([]int, len(peers))
 	rf.role = Follower
 
-	rf.overtime = time.Duration(150+rand.Intn(200)) * time.Millisecond
+	rf.overtime = time.Duration(250+rand.Intn(250)) * time.Millisecond
 	rf.timer = time.NewTimer(rf.overtime)
 
 	rf.applyCh = applyCh
